@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boomer Shooter 3D - Online P2P</title>
+    <title>Boomer Shooter 3D - Online WebSocket</title>
     <style>
         * {
             margin: 0;
@@ -187,11 +187,13 @@
             font-size: 16px;
             color: #ffff00;
             font-weight: bold;
-            max-width: 400px;
+            max-width: 450px;
+            white-space: pre-line;
         }
     </style>
+    <!-- Three.js e MQTT via WebSockets -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 </head>
 <body>
 
@@ -277,7 +279,7 @@
         }
 
         /* =========================================================================
-           2. TEXTURAS PROCEDURAIS & CENA THREE.JS
+           2. TEXTURAS PROCEDURAIS & THREE.JS CENA
            ========================================================================= */
         function createTexture(drawFn, size = 64) {
             const canvas = document.createElement('canvas');
@@ -338,7 +340,7 @@
         scene.add(camera);
 
         /* =========================================================================
-           3. CONSTRUÇÃO DO MAPA
+           3. MAPA DA ARENA
            ========================================================================= */
         const UNIT = 4;
         const MAP = [
@@ -399,13 +401,13 @@
         camera.add(gunGroup);
 
         /* =========================================================================
-           5. REDE MULTIPLAYER P2P COM SERVIDORES STUN GOOGLE
+           5. REDE MULTIPLAYER VIA WEBSOCKET (MQTT BROKER PUBLICO)
            ========================================================================= */
-        let peer = null;
-        let connections = [];
+        let mqttClient = null;
+        let currentTopic = "";
+        const myClientId = "p_" + Math.random().toString(36).substr(2, 7);
         let remotePlayers = {};
         let isOnline = false;
-        let myPeerId = null;
 
         function updateStatus(msg, color = "#ffff00") {
             const statusEl = document.getElementById('net-status');
@@ -414,64 +416,63 @@
             statusEl.innerText = msg;
         }
 
-        function initPeer(customId = null, callback) {
-            // Configura servidores STUN do Google para atravessar Roteadores/Firewalls
-            const peerOptions = {
-                config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' }
-                    ]
+        function connectNetwork(roomCode, onConnected) {
+            updateStatus("CONECTANDO AO SERVIDOR DE REDE...");
+
+            // Broker WebSocket público EMQX/HiveMQ (porta 8084 via WSS)
+            mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+                clientId: myClientId,
+                clean: true,
+                connectTimeout: 5000
+            });
+
+            currentTopic = "boomer-shooter-v2/room/" + roomCode;
+
+            mqttClient.on('connect', () => {
+                mqttClient.subscribe(currentTopic, { qos: 0 }, (err) => {
+                    if (!err) {
+                        isOnline = true;
+                        onConnected();
+                    } else {
+                        updateStatus("ERRO AO ENTRAR NA SALA.", "#ff2222");
+                    }
+                });
+            });
+
+            mqttClient.on('message', (topic, message) => {
+                try {
+                    const data = JSON.parse(message.toString());
+                    if (data.sender === myClientId) return; // Ignora as próprias mensagens
+
+                    handleNetworkData(data);
+                } catch (e) {
+                    console.error("Payload inválido", e);
                 }
-            };
-
-            peer = customId ? new Peer(customId, peerOptions) : new Peer(peerOptions);
-
-            peer.on('open', (id) => {
-                myPeerId = id;
-                if (callback) callback(id);
             });
 
-            peer.on('connection', (conn) => {
-                setupConnection(conn);
-                updateStatus("JOGADOR CONECTADO!", "#00ff00");
-                document.getElementById('start-btn').style.display = 'block';
-            });
-
-            peer.on('error', (err) => {
-                console.error("PeerJS Error:", err);
-                if (err.type === 'unavailable-id') {
-                    updateStatus("CÓDIGO INDISPONÍVEL. TENTE NOVAMENTE.", "#ff2222");
-                } else {
-                    updateStatus("ERRO DE CONEXÃO: " + err.type, "#ff2222");
-                }
+            mqttClient.on('error', (err) => {
+                updateStatus("ERRO DE REDE WEBSOCKET: " + err, "#ff2222");
             });
         }
 
-        function setupConnection(conn) {
-            connections.push(conn);
-            conn.on('data', (data) => handleNetworkData(data, conn.peer));
-            conn.on('close', () => {
-                removeRemotePlayer(conn.peer);
-                updateStatus("O OUTRO JOGADOR DESCONECTOU.", "#ff2222");
-            });
+        function sendNetworkData(data) {
+            if (isOnline && mqttClient && mqttClient.connected) {
+                data.sender = myClientId;
+                mqttClient.publish(currentTopic, JSON.stringify(data), { qos: 0 });
+            }
         }
 
-        function broadcast(data) {
-            connections.forEach(conn => {
-                if (conn.open) conn.send(data);
-            });
-        }
-
-        function handleNetworkData(data, peerId) {
+        function handleNetworkData(data) {
             if (data.type === 'POS') {
-                if (!remotePlayers[peerId]) {
-                    createRemotePlayer(peerId);
+                if (!remotePlayers[data.sender]) {
+                    createRemotePlayer(data.sender);
+                    updateStatus("JOGADOR ADVERSÁRIO ENTROU NA SALA!", "#00ff00");
+                    document.getElementById('start-btn').style.display = 'block';
                 }
-                remotePlayers[peerId].sprite.position.set(data.x, 1.1, data.z);
+                remotePlayers[data.sender].sprite.position.set(data.x, 1.1, data.z);
             } else if (data.type === 'SHOOT') {
                 playSound('shoot');
-            } else if (data.type === 'HIT' && data.target === myPeerId) {
+            } else if (data.type === 'HIT' && data.target === myClientId) {
                 playerTakeDamage(data.damage);
             }
         }
@@ -482,13 +483,6 @@
             sprite.scale.set(2.2, 2.2, 1);
             scene.add(sprite);
             remotePlayers[id] = { sprite };
-        }
-
-        function removeRemotePlayer(id) {
-            if (remotePlayers[id]) {
-                scene.remove(remotePlayers[id].sprite);
-                delete remotePlayers[id];
-            }
         }
 
         /* =========================================================================
@@ -551,10 +545,11 @@
                 if (!checkWallCollision(camera.position.x, nextZ, 0.5)) camera.position.z = nextZ;
             }
 
+            // Sincroniza posição no servidor a 20Hz
             if (isOnline) {
                 networkTimer += dt;
                 if (networkTimer > 0.05) {
-                    broadcast({ type: 'POS', x: camera.position.x, z: camera.position.z });
+                    sendNetworkData({ type: 'POS', x: camera.position.x, z: camera.position.z });
                     networkTimer = 0;
                 }
             }
@@ -576,12 +571,13 @@
             document.getElementById('ammo-text').innerText = ammoCount;
 
             playSound('shoot');
-            if (isOnline) broadcast({ type: 'SHOOT' });
+            if (isOnline) sendNetworkData({ type: 'SHOOT' });
 
             muzzleSprite.visible = true;
             recoilTimer = 0.15;
             setTimeout(() => { muzzleSprite.visible = false; }, 50);
 
+            // Colisão do tiro com outros jogadores
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
 
@@ -592,7 +588,7 @@
                 const hitSprite = intersects[0].object;
                 const targetId = Object.keys(remotePlayers).find(id => remotePlayers[id].sprite === hitSprite);
                 if (targetId && isOnline) {
-                    broadcast({ type: 'HIT', target: targetId, damage: 25 });
+                    sendNetworkData({ type: 'HIT', target: targetId, damage: 25 });
                 }
             }
         }
@@ -608,7 +604,7 @@
         }
 
         /* =========================================================================
-           7. INTERFACE E LÓGICA DAS SALAS ONLINE
+           7. EVENTOS E INTERFACE DOS MENUS
            ========================================================================= */
         const overlay = document.getElementById('screen-overlay');
         const startBtn = document.getElementById('start-btn');
@@ -621,16 +617,13 @@
         });
 
         document.getElementById('host-btn').addEventListener('click', () => {
-            updateStatus("CONECTANDO AO SERVIDOR DE REDE...");
+            const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
             menuOptions.style.display = 'none';
 
-            // Gera código numérico de 4 dígitos
-            const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-            
-            initPeer("BOOMER-FPS-" + roomCode, (id) => {
-                isOnline = true;
+            connectNetwork(roomCode, () => {
                 document.getElementById('mode-text').innerText = "ONLINE";
-                updateStatus("SALA CRIADA! CÓDIGO: " + roomCode + "\nAGUARDANDO SEGUNDO JOGADOR...", "#00ff00");
+                updateStatus("SALA CRIADA COM SUCESSO!\nCÓDIGO DA SALA: " + roomCode + "\n\nCompartilhe o código para jogar.", "#00ff00");
+                startBtn.style.display = 'block';
             });
         });
 
@@ -640,28 +633,12 @@
                 return updateStatus("DIGITE UM CÓDIGO VÁLIDO DE 4 DÍGITOS!", "#ff2222");
             }
 
-            updateStatus("CONECTANDO À SALA " + code + "...");
             menuOptions.style.display = 'none';
 
-            initPeer(null, () => {
-                const targetHostId = "BOOMER-FPS-" + code;
-                const conn = peer.connect(targetHostId, { reliable: true });
-
-                setupConnection(conn);
-
-                conn.on('open', () => {
-                    isOnline = true;
-                    document.getElementById('mode-text').innerText = "ONLINE";
-                    updateStatus("CONECTADO À SALA COM SUCESSO!", "#00ff00");
-                    document.getElementById('start-btn').style.display = 'block';
-                });
-
-                setTimeout(() => {
-                    if (!conn.open) {
-                        updateStatus("FALHA AO ENCONTRAR A SALA " + code + ". VERIFIQUE O CÓDIGO E SE O HOST ESTÁ ESPERANDO.", "#ff2222");
-                        menuOptions.style.display = 'flex';
-                    }
-                }, 7000);
+            connectNetwork(code, () => {
+                document.getElementById('mode-text').innerText = "ONLINE";
+                updateStatus("CONECTADO À SALA " + code + "!", "#00ff00");
+                startBtn.style.display = 'block';
             });
         });
 
