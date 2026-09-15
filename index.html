@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boomer Shooter 3D - Retro FPS</title>
+    <title>Boomer Shooter 3D - Online P2P</title>
     <style>
         * {
             margin: 0;
@@ -21,14 +21,12 @@
             color: #fff;
         }
 
-        /* Container do Canvas WebGL */
         #game-container {
             width: 100vw;
             height: 100vh;
             display: block;
         }
 
-        /* Aplica o filtro Pixelated para estética Retro Boomer Shooter */
         canvas {
             width: 100% !important;
             height: 100% !important;
@@ -36,7 +34,6 @@
             image-rendering: crisp-edges;
         }
 
-        /* Mira (Crosshair) no Centro */
         #crosshair {
             position: absolute;
             top: 50%;
@@ -56,7 +53,6 @@
         #crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
         #crosshair::after { left: 0; top: 6px; width: 14px; height: 2px; }
 
-        /* HUD Estilo Retro na Parte Inferior */
         #hud {
             position: absolute;
             bottom: 0;
@@ -95,9 +91,8 @@
 
         .health-val { color: #ff3333; text-shadow: 0 0 8px #880000; }
         .ammo-val { color: #ffff33; text-shadow: 0 0 8px #888800; }
-        .kills-val { color: #33ff33; text-shadow: 0 0 8px #008800; }
+        .mode-val { color: #33ffff; text-shadow: 0 0 8px #008888; font-size: 16px; }
 
-        /* Flash Vermelho ao Receber Dano */
         #damage-overlay {
             position: absolute;
             top: 0;
@@ -111,14 +106,13 @@
             z-index: 9;
         }
 
-        /* Telas de Menu / Start / Game Over */
         #screen-overlay {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(10, 10, 12, 0.85);
+            background: rgba(10, 10, 12, 0.9);
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -128,7 +122,7 @@
         }
 
         #screen-overlay h1 {
-            font-size: 56px;
+            font-size: 48px;
             color: #ff2222;
             text-shadow: 4px 4px #550000;
             margin-bottom: 10px;
@@ -136,32 +130,68 @@
         }
 
         #screen-overlay p {
-            font-size: 16px;
+            font-size: 14px;
             color: #ccc;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
             max-width: 500px;
             line-height: 1.5;
         }
 
+        .menu-box {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 280px;
+        }
+
         .btn {
-            padding: 14px 32px;
-            font-size: 20px;
+            padding: 12px 24px;
+            font-size: 16px;
             font-weight: bold;
             background: #990000;
             color: #fff;
-            border: 3px solid #ff3333;
+            border: 2px solid #ff3333;
             cursor: pointer;
             text-transform: uppercase;
-            box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.4);
         }
 
         .btn:hover {
             background: #cc0000;
-            box-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.7);
+        }
+
+        .btn-blue {
+            background: #006699;
+            border-color: #33ffff;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.4);
+        }
+        .btn-blue:hover {
+            background: #0088cc;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.7);
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            text-align: center;
+            background: #111;
+            border: 2px solid #555;
+            color: #00ff00;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        #room-info {
+            margin-top: 15px;
+            font-size: 18px;
+            color: #00ff00;
+            font-weight: bold;
         }
     </style>
-    <!-- Importação do Three.js via CDN -->
+    <!-- Three.js & PeerJS (WebRTC P2P) via CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 
@@ -169,7 +199,6 @@
     <div id="crosshair"></div>
     <div id="damage-overlay"></div>
 
-    <!-- HUD Overlay -->
     <div id="hud">
         <div class="hud-panel">
             <div class="hud-label">VIDA</div>
@@ -180,21 +209,29 @@
             <div id="ammo-text" class="hud-value ammo-val">30</div>
         </div>
         <div class="hud-panel">
-            <div class="hud-label">INIMIGOS</div>
-            <div id="kills-text" class="hud-value kills-val">0/4</div>
+            <div class="hud-label">MODO DE JOGO</div>
+            <div id="mode-text" class="hud-value mode-val">SOLO</div>
         </div>
     </div>
 
-    <!-- Tela de Inicio / Pausa / Fim de Jogo -->
     <div id="screen-overlay">
         <h1 id="overlay-title">BOOMER SHOOTER 3D</h1>
-        <p id="overlay-desc">Use <b>WASD</b> para andar e o <b>MOUSE</b> para olhar.<br>Clique no <b>Botão Esquerdo</b> para atirar.<br>Elimine todos os demônios no labirinto!</p>
-        <button id="start-btn" class="btn">INICIAR JOGO</button>
+        <p id="overlay-desc">Use WASD para andar, MOUSE para mirar e Botão Esquerdo para atirar.</p>
+        
+        <div class="menu-box" id="menu-options">
+            <button id="solo-btn" class="btn">MODO SOLO</button>
+            <button id="host-btn" class="btn btn-blue">CRIAR SALA ONLINE</button>
+            <input type="text" id="join-code-input" placeholder="CÓDIGO DA SALA" maxlength="4">
+            <button id="join-btn" class="btn btn-blue">ENTRAR NA SALA</button>
+        </div>
+
+        <div id="room-info" style="display: none;"></div>
+        <button id="start-btn" class="btn" style="display: none; margin-top: 15px;">INICIAR JOGO</button>
     </div>
 
     <script>
         /* =========================================================================
-           1. SINTETIZADOR DE ÁUDIO PROCEDURAL (Web Audio API)
+           1. ÁUDIO PROCEDURAL
            ========================================================================= */
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         let audioCtx = null;
@@ -229,55 +266,27 @@
                 filter.connect(gain);
                 gain.connect(audioCtx.destination);
                 noise.start(now);
-
-            } else if (type === 'hit') {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(240, now);
-                osc.frequency.exponentialRampToValueAtTime(40, now + 0.12);
-                gain.gain.setValueAtTime(0.4, now);
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.start(now);
-                osc.stop(now + 0.12);
-
-            } else if (type === 'hurt') {
+            } else if (type === 'hit' || type === 'hurt') {
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
                 osc.type = 'square';
-                osc.frequency.setValueAtTime(140, now);
-                osc.frequency.linearRampToValueAtTime(50, now + 0.2);
-                gain.gain.setValueAtTime(0.5, now);
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
                 osc.connect(gain);
                 gain.connect(audioCtx.destination);
                 osc.start(now);
-                osc.stop(now + 0.2);
-
-            } else if (type === 'kill') {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(180, now);
-                osc.frequency.exponentialRampToValueAtTime(25, now + 0.35);
-                gain.gain.setValueAtTime(0.5, now);
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.start(now);
-                osc.stop(now + 0.35);
+                osc.stop(now + 0.15);
             }
         }
 
         /* =========================================================================
-           2. GERADOR DE TEXTURAS PROCEDURAIS
+           2. TEXTURAS PROCEDURAIS & CENA THREE.JS
            ========================================================================= */
         function createTexture(drawFn, size = 64) {
             const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
+            canvas.width = size; canvas.height = size;
             const ctx = canvas.getContext('2d');
             drawFn(ctx, size);
             const texture = new THREE.CanvasTexture(canvas);
@@ -287,350 +296,191 @@
         }
 
         const wallTexture = createTexture((ctx, s) => {
-            ctx.fillStyle = '#1e1410';
-            ctx.fillRect(0, 0, s, s);
-            const brickH = 8, brickW = 16;
-            for (let y = 0; y < s; y += brickH) {
-                const offset = (y / brickH % 2) * (brickW / 2);
-                for (let x = -brickW; x < s + brickW; x += brickW) {
+            ctx.fillStyle = '#1e1410'; ctx.fillRect(0, 0, s, s);
+            for (let y = 0; y < s; y += 8) {
+                const offset = (y / 8 % 2) * 8;
+                for (let x = -16; x < s + 16; x += 16) {
                     ctx.fillStyle = (Math.random() > 0.3) ? '#5a2a18' : '#462010';
-                    ctx.fillRect(x + offset + 1, y + 1, brickW - 2, brickH - 2);
-                    ctx.fillStyle = '#783820';
-                    ctx.fillRect(x + offset + 2, y + 2, 4, 2);
+                    ctx.fillRect(x + offset + 1, y + 1, 14, 6);
                 }
             }
         });
 
         const floorTexture = createTexture((ctx, s) => {
-            ctx.fillStyle = '#1a1a20';
-            ctx.fillRect(0, 0, s, s);
-            ctx.strokeStyle = '#333340';
-            ctx.lineWidth = 2;
+            ctx.fillStyle = '#1a1a20'; ctx.fillRect(0, 0, s, s);
+            ctx.strokeStyle = '#333340'; ctx.lineWidth = 2;
             ctx.strokeRect(2, 2, s - 4, s - 4);
-            ctx.fillStyle = '#444455';
-            ctx.fillRect(4, 4, 3, 3);
-            ctx.fillRect(s - 7, 4, 3, 3);
-            ctx.fillRect(4, s - 7, 3, 3);
-            ctx.fillRect(s - 7, s - 7, 3, 3);
         });
 
-        const ceilingTexture = createTexture((ctx, s) => {
-            ctx.fillStyle = '#0d0d12';
-            ctx.fillRect(0, 0, s, s);
-            ctx.strokeStyle = '#1a1a24';
-            ctx.lineWidth = 4;
-            ctx.strokeRect(0, 0, s, s);
-        });
-
-        const enemyTexture = createTexture((ctx, s) => {
+        // Sprite do Jogador Adversário (Cor Azul)
+        const remotePlayerTexture = createTexture((ctx, s) => {
             ctx.clearRect(0, 0, s, s);
-            ctx.fillStyle = '#bb1111';
-            ctx.beginPath();
-            ctx.arc(s/2, s/2 + 4, 22, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#440000';
-            ctx.fillRect(14, 10, 8, 14);
-            ctx.fillRect(42, 10, 8, 14);
-            ctx.fillStyle = '#ffff00';
-            ctx.fillRect(20, 26, 8, 8);
-            ctx.fillRect(36, 26, 8, 8);
-            ctx.fillStyle = '#ff0000';
-            ctx.fillRect(22, 28, 4, 4);
-            ctx.fillRect(38, 28, 4, 4);
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(20, 42, 24, 10);
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(22, 42, 4, 4);
-            ctx.fillRect(30, 42, 4, 4);
-            ctx.fillRect(38, 42, 4, 4);
+            ctx.fillStyle = '#0088ff'; ctx.beginPath(); ctx.arc(s/2, s/2 + 4, 22, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#00ffff'; ctx.fillRect(20, 26, 8, 8); ctx.fillRect(36, 26, 8, 8);
+            ctx.fillStyle = '#000000'; ctx.fillRect(20, 42, 24, 6);
         });
 
         const muzzleTexture = createTexture((ctx, s) => {
             ctx.clearRect(0, 0, s, s);
             const grad = ctx.createRadialGradient(s/2, s/2, 2, s/2, s/2, s/2);
-            grad.addColorStop(0, '#ffffff');
-            grad.addColorStop(0.3, '#ffff00');
-            grad.addColorStop(0.7, '#ff4400');
-            grad.addColorStop(1, 'rgba(255,0,0,0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, s, s);
+            grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.5, '#ff4400'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, s, s);
         });
 
-        /* =========================================================================
-           3. CONFIGURAÇÃO DA CENA THREE.JS E RENDERIZADOR
-           ========================================================================= */
         const container = document.getElementById('game-container');
         const scene = new THREE.Scene();
-
         scene.fog = new THREE.FogExp2(0x0a0a0e, 0.06);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        // CORREÇÃO DA CÂMERA: Ordem de Rotação YXZ para FPS
         camera.rotation.order = 'YXZ';
-        
+
         const renderer = new THREE.WebGLRenderer({ antialias: false });
-        const renderScale = 0.4;
-        renderer.setSize(window.innerWidth * renderScale, window.innerHeight * renderScale, false);
+        renderer.setSize(window.innerWidth * 0.4, window.innerHeight * 0.4, false);
         container.appendChild(renderer.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-        scene.add(ambientLight);
-
+        scene.add(new THREE.AmbientLight(0xffffff, 0.4));
         const playerLight = new THREE.PointLight(0xffaa66, 0.8, 15);
         camera.add(playerLight);
         scene.add(camera);
 
         /* =========================================================================
-           4. CONSTRUÇÃO DO MAPA 3D
+           3. CONSTRUÇÃO DO MAPA
            ========================================================================= */
         const UNIT = 4;
         const MAP = [
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-            [1,0,0,0,0,1,0,0,0,0,0,0,2,0,0,1],
+            [1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
             [1,0,1,1,0,1,0,1,1,1,1,0,1,1,0,1],
-            [1,0,1,0,0,0,0,0,2,0,1,0,0,1,0,1],
+            [1,0,1,0,0,0,0,0,0,0,1,0,0,1,0,1],
             [1,0,1,0,1,1,1,1,1,0,1,1,0,1,0,1],
             [1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,1],
             [1,1,1,0,1,0,1,0,1,1,1,1,1,1,0,1],
-            [1,0,0,0,0,0,1,0,0,0,0,2,0,1,0,1],
+            [1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,1],
             [1,0,1,1,1,1,1,0,1,1,1,1,0,1,0,1],
-            [1,0,0,0,2,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
         ];
 
-        const mapWidth = MAP[0].length;
-        const mapHeight = MAP.length;
-        const halfW = (mapWidth * UNIT) / 2;
-        const halfH = (mapHeight * UNIT) / 2;
+        const mapWidth = MAP[0].length, mapHeight = MAP.length;
+        const halfW = (mapWidth * UNIT) / 2, halfH = (mapHeight * UNIT) / 2;
 
         const wallGeo = new THREE.BoxGeometry(UNIT, UNIT, UNIT);
         const wallMat = new THREE.MeshStandardMaterial({ map: wallTexture, roughness: 0.8 });
 
         for (let z = 0; z < mapHeight; z++) {
             for (let x = 0; x < mapWidth; x++) {
-                const posX = x * UNIT - halfW + UNIT/2;
-                const posZ = z * UNIT - halfH + UNIT/2;
-
                 if (MAP[z][x] === 1) {
                     const wall = new THREE.Mesh(wallGeo, wallMat);
-                    wall.position.set(posX, UNIT/2, posZ);
+                    wall.position.set(x * UNIT - halfW + UNIT/2, UNIT/2, z * UNIT - halfH + UNIT/2);
                     scene.add(wall);
                 }
             }
         }
 
         const floorGeo = new THREE.PlaneGeometry(mapWidth * UNIT, mapHeight * UNIT);
-        
         floorTexture.repeat.set(mapWidth, mapHeight);
-        floorTexture.wrapS = THREE.RepeatWrapping;
-        floorTexture.wrapT = THREE.RepeatWrapping;
-        const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.6 });
-        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floorTexture.wrapS = floorTexture.wrapT = THREE.RepeatWrapping;
+        const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ map: floorTexture }));
         floor.rotation.x = -Math.PI / 2;
-        floor.position.set(0, 0, 0);
         scene.add(floor);
 
-        ceilingTexture.repeat.set(mapWidth, mapHeight);
-        ceilingTexture.wrapS = THREE.RepeatWrapping;
-        ceilingTexture.wrapT = THREE.RepeatWrapping;
-        const ceilingMat = new THREE.MeshStandardMaterial({ map: ceilingTexture, roughness: 0.9 });
-        const ceiling = new THREE.Mesh(floorGeo, ceilingMat);
-        ceiling.rotation.x = Math.PI / 2;
-        ceiling.position.set(0, UNIT, 0);
-        scene.add(ceiling);
-
         /* =========================================================================
-           5. ARMA JOGADOR 3D
+           4. MODELO DA ARMA
            ========================================================================= */
         const gunGroup = new THREE.Group();
-        const metalMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.3 });
-        const woodMat = new THREE.MeshStandardMaterial({ color: 0x4a2511, roughness: 0.7 });
-
-        const barrelGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.65, 8);
-        barrelGeo.rotateX(Math.PI / 2);
-        const barrel1 = new THREE.Mesh(barrelGeo, metalMat);
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
+        const barrel1 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.65, 8).rotateX(Math.PI/2), metalMat);
         barrel1.position.set(-0.045, 0, -0.2);
-        const barrel2 = new THREE.Mesh(barrelGeo, metalMat);
+        const barrel2 = barrel1.clone();
         barrel2.position.set(0.045, 0, -0.2);
         gunGroup.add(barrel1, barrel2);
 
-        const bodyGeo = new THREE.BoxGeometry(0.16, 0.12, 0.35);
-        const body = new THREE.Mesh(bodyGeo, woodMat);
-        body.position.set(0, -0.05, 0.15);
-        gunGroup.add(body);
-
-        const muzzleMat = new THREE.SpriteMaterial({ map: muzzleTexture, transparent: true, blending: THREE.AdditiveBlending });
-        const muzzleSprite = new THREE.Sprite(muzzleMat);
+        const muzzleSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: muzzleTexture, transparent: true, blending: THREE.AdditiveBlending }));
         muzzleSprite.scale.set(0.5, 0.5, 1);
         muzzleSprite.position.set(0, 0, -0.55);
         muzzleSprite.visible = false;
         gunGroup.add(muzzleSprite);
 
-        const muzzleLight = new THREE.PointLight(0xffaa00, 0, 8);
-        muzzleLight.position.set(0, 0, -0.55);
-        gunGroup.add(muzzleLight);
-
         gunGroup.position.set(0.22, -0.22, -0.45);
         camera.add(gunGroup);
 
         /* =========================================================================
-           6. GERENCIAMENTO DOS INIMIGOS E PARTÍCULAS
+           5. REDE MULTIPLAYER P2P (PEERJS)
            ========================================================================= */
-        const enemies = [];
-        const particles = [];
-        let totalEnemies = 0;
-        let killedEnemies = 0;
+        let peer = null;
+        let connections = [];
+        let remotePlayers = {};
+        let isOnline = false;
+        let myPeerId = null;
 
-        class Enemy {
-            constructor(x, z) {
-                const spriteMat = new THREE.SpriteMaterial({ map: enemyTexture });
-                this.sprite = new THREE.Sprite(spriteMat);
-                this.sprite.scale.set(2.2, 2.2, 1);
-                this.sprite.position.set(x, 1.1, z);
-                scene.add(this.sprite);
+        function initPeer(customId = null) {
+            peer = customId ? new Peer(customId) : new Peer();
 
-                this.hp = 100;
-                this.isDead = false;
-                this.attackCooldown = 0;
-                this.speed = 2.6;
-            }
+            peer.on('open', (id) => {
+                myPeerId = id;
+                console.log("Peer Conectado ID:", id);
+            });
 
-            update(dt) {
-                if (this.isDead) return;
+            peer.on('connection', (conn) => {
+                setupConnection(conn);
+            });
+        }
 
-                const distToPlayer = this.sprite.position.distanceTo(camera.position);
+        function setupConnection(conn) {
+            connections.push(conn);
+            conn.on('data', (data) => handleNetworkData(data, conn.peer));
+            conn.on('close', () => removeRemotePlayer(conn.peer));
+        }
 
-                if (distToPlayer < 20 && distToPlayer > 1.3) {
-                    const dir = new THREE.Vector3().subVectors(camera.position, this.sprite.position);
-                    dir.y = 0;
-                    dir.normalize();
+        function broadcast(data) {
+            connections.forEach(conn => {
+                if (conn.open) conn.send(data);
+            });
+        }
 
-                    const nextX = this.sprite.position.x + dir.x * this.speed * dt;
-                    const nextZ = this.sprite.position.z + dir.z * this.speed * dt;
-
-                    if (!checkWallCollision(nextX, this.sprite.position.z, 0.5)) {
-                        this.sprite.position.x = nextX;
-                    }
-                    if (!checkWallCollision(this.sprite.position.x, nextZ, 0.5)) {
-                        this.sprite.position.z = nextZ;
-                    }
+        function handleNetworkData(data, peerId) {
+            if (data.type === 'POS') {
+                if (!remotePlayers[peerId]) {
+                    createRemotePlayer(peerId);
                 }
-
-                if (distToPlayer <= 1.5) {
-                    if (this.attackCooldown <= 0) {
-                        playerTakeDamage(15);
-                        this.attackCooldown = 1.0;
-                    }
-                }
-
-                if (this.attackCooldown > 0) {
-                    this.attackCooldown -= dt;
-                }
-            }
-
-            takeDamage(amount, hitPoint) {
-                if (this.isDead) return;
-                this.hp -= amount;
-                playSound('hit');
-                spawnBloodParticles(hitPoint);
-
-                this.sprite.material.color.setHex(0xff0000);
-                setTimeout(() => {
-                    if (!this.isDead) this.sprite.material.color.setHex(0xffffff);
-                }, 100);
-
-                if (this.hp <= 0) {
-                    this.die();
-                }
-            }
-
-            die() {
-                this.isDead = true;
-                playSound('kill');
-                killedEnemies++;
-                updateHUD();
-
-                let progress = 0;
-                const startY = this.sprite.position.y;
-                const dieInterval = setInterval(() => {
-                    progress += 0.1;
-                    this.sprite.scale.y = Math.max(0.1, 2.2 * (1 - progress));
-                    this.sprite.position.y = startY - progress * 0.4;
-                    if (progress >= 1) {
-                        clearInterval(dieInterval);
-                        scene.remove(this.sprite);
-                    }
-                }, 30);
-
-                if (killedEnemies >= totalEnemies) {
-                    setTimeout(() => endGame(true), 500);
-                }
+                remotePlayers[peerId].sprite.position.set(data.x, 1.1, data.z);
+            } else if (data.type === 'SHOOT') {
+                playSound('shoot');
+            } else if (data.type === 'HIT' && data.target === myPeerId) {
+                playerTakeDamage(data.damage);
             }
         }
 
-        for (let z = 0; z < mapHeight; z++) {
-            for (let x = 0; x < mapWidth; x++) {
-                if (MAP[z][x] === 2) {
-                    const posX = x * UNIT - halfW + UNIT/2;
-                    const posZ = z * UNIT - halfH + UNIT/2;
-                    enemies.push(new Enemy(posX, posZ));
-                    totalEnemies++;
-                }
-            }
+        function createRemotePlayer(id) {
+            const mat = new THREE.SpriteMaterial({ map: remotePlayerTexture });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(2.2, 2.2, 1);
+            scene.add(sprite);
+            remotePlayers[id] = { sprite };
         }
 
-        function spawnBloodParticles(pos) {
-            const count = 10;
-            const pGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
-            const pMat = new THREE.MeshBasicMaterial({ color: 0x990000 });
-
-            for (let i = 0; i < count; i++) {
-                const p = new THREE.Mesh(pGeo, pMat);
-                p.position.copy(pos);
-                const vel = new THREE.Vector3(
-                    (Math.random() - 0.5) * 3,
-                    Math.random() * 2 + 1,
-                    (Math.random() - 0.5) * 3
-                );
-                scene.add(p);
-                particles.push({ mesh: p, vel: vel, life: 0.4 });
-            }
-        }
-
-        function updateParticles(dt) {
-            for (let i = particles.length - 1; i >= 0; i--) {
-                const p = particles[i];
-                p.life -= dt;
-                p.vel.y -= 9.8 * dt;
-                p.mesh.position.addScaledVector(p.vel, dt);
-                if (p.life <= 0) {
-                    scene.remove(p.mesh);
-                    particles.splice(i, 1);
-                }
+        function removeRemotePlayer(id) {
+            if (remotePlayers[id]) {
+                scene.remove(remotePlayers[id].sprite);
+                delete remotePlayers[id];
             }
         }
 
         /* =========================================================================
-           7. CONTROLES DO JOGADOR, COLISÃO E FÍSICA
+           6. CONTROLES E GAMEPLAY
            ========================================================================= */
-        let playerHP = 100;
-        let ammoCount = 30;
+        let playerHP = 100, ammoCount = 30;
         let gameState = 'START';
+        const keys = {};
+        let yaw = 0, pitch = 0, recoilTimer = 0, shootCooldown = 0;
 
         camera.position.set(-halfW + UNIT * 1.5, 1.2, -halfH + UNIT * 1.5);
 
-        const keys = {};
-        let yaw = 0, pitch = 0;
-        let recoilTimer = 0;
-        let shootCooldown = 0;
-
-        // CORREÇÃO DA CÂMERA: Movimentação suave sem inclinação lateral
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body && gameState === 'PLAYING') {
                 yaw -= e.movementX * 0.0022;
                 pitch -= e.movementY * 0.0022;
                 pitch = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, pitch));
-                
                 camera.rotation.y = yaw;
                 camera.rotation.x = pitch;
             }
@@ -643,13 +493,7 @@
         });
 
         function checkWallCollision(x, z, radius) {
-            const points = [
-                {x: x - radius, z: z - radius},
-                {x: x + radius, z: z - radius},
-                {x: x - radius, z: z + radius},
-                {x: x + radius, z: z + radius}
-            ];
-
+            const points = [{x: x - radius, z: z - radius}, {x: x + radius, z: z - radius}, {x: x - radius, z: z + radius}, {x: x + radius, z: z + radius}];
             for (let p of points) {
                 const gridX = Math.floor((p.x + halfW) / UNIT);
                 const gridZ = Math.floor((p.z + halfH) / UNIT);
@@ -660,12 +504,12 @@
             return false;
         }
 
+        let networkTimer = 0;
         function updatePlayer(dt) {
             if (gameState !== 'PLAYING') return;
 
             const moveSpeed = 7.5;
             let forward = 0, side = 0;
-
             if (keys['KeyW'] || keys['ArrowUp']) forward += 1;
             if (keys['KeyS'] || keys['ArrowDown']) forward -= 1;
             if (keys['KeyA'] || keys['ArrowLeft']) side -= 1;
@@ -675,22 +519,25 @@
                 const moveDir = new THREE.Vector3(side, 0, -forward).normalize();
                 moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
 
-                const playerRadius = 0.5;
                 const nextX = camera.position.x + moveDir.x * moveSpeed * dt;
                 const nextZ = camera.position.z + moveDir.z * moveSpeed * dt;
 
-                if (!checkWallCollision(nextX, camera.position.z, playerRadius)) {
-                    camera.position.x = nextX;
-                }
-                if (!checkWallCollision(camera.position.x, nextZ, playerRadius)) {
-                    camera.position.z = nextZ;
+                if (!checkWallCollision(nextX, camera.position.z, 0.5)) camera.position.x = nextX;
+                if (!checkWallCollision(camera.position.x, nextZ, 0.5)) camera.position.z = nextZ;
+            }
+
+            // Envia posição via rede a 20Hz
+            if (isOnline) {
+                networkTimer += dt;
+                if (networkTimer > 0.05) {
+                    broadcast({ type: 'POS', x: camera.position.x, z: camera.position.z });
+                    networkTimer = 0;
                 }
             }
 
             if (recoilTimer > 0) {
                 recoilTimer -= dt;
                 gunGroup.position.z = -0.45 + Math.sin(recoilTimer * 25) * 0.08;
-                gunGroup.position.y = -0.22 + Math.sin(recoilTimer * 25) * 0.04;
             } else {
                 gunGroup.position.set(0.22, -0.22, -0.45);
             }
@@ -700,33 +547,29 @@
 
         function shoot() {
             if (shootCooldown > 0 || ammoCount <= 0) return;
-
             shootCooldown = 0.35;
             ammoCount--;
-            updateHUD();
+            document.getElementById('ammo-text').innerText = ammoCount;
 
             playSound('shoot');
+            if (isOnline) broadcast({ type: 'SHOOT' });
 
             muzzleSprite.visible = true;
-            muzzleLight.intensity = 2.5;
             recoilTimer = 0.15;
+            setTimeout(() => { muzzleSprite.visible = false; }, 50);
 
-            setTimeout(() => {
-                muzzleSprite.visible = false;
-                muzzleLight.intensity = 0;
-            }, 50);
-
+            // Raycast para atingir jogadores remotos
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
 
-            const activeEnemies = enemies.filter(e => !e.isDead).map(e => e.sprite);
-            const intersects = raycaster.intersectObjects(activeEnemies);
+            const remoteSprites = Object.values(remotePlayers).map(p => p.sprite);
+            const intersects = raycaster.intersectObjects(remoteSprites);
 
             if (intersects.length > 0) {
                 const hitSprite = intersects[0].object;
-                const enemy = enemies.find(e => e.sprite === hitSprite);
-                if (enemy) {
-                    enemy.takeDamage(40, intersects[0].point);
+                const targetId = Object.keys(remotePlayers).find(id => remotePlayers[id].sprite === hitSprite);
+                if (targetId && isOnline) {
+                    broadcast({ type: 'HIT', target: targetId, damage: 25 });
                 }
             }
         }
@@ -734,117 +577,93 @@
         function playerTakeDamage(dmg) {
             playerHP = Math.max(0, playerHP - dmg);
             playSound('hurt');
-            updateHUD();
+            document.getElementById('hp-text').innerText = `${playerHP}%`;
 
             const overlay = document.getElementById('damage-overlay');
             overlay.style.opacity = '0.7';
             setTimeout(() => { overlay.style.opacity = '0'; }, 150);
-
-            if (playerHP <= 0) {
-                endGame(false);
-            }
-        }
-
-        function updateHUD() {
-            document.getElementById('hp-text').innerText = `${playerHP}%`;
-            document.getElementById('ammo-text').innerText = ammoCount;
-            document.getElementById('kills-text').innerText = `${killedEnemies}/${totalEnemies}`;
         }
 
         /* =========================================================================
-           8. ESTADO DE JOGO E LOOP PRINCIPAL DE ANIMAÇÃO
+           7. INTERFACE E EVENTOS DOS MENUS ONLINE
            ========================================================================= */
         const overlay = document.getElementById('screen-overlay');
+        const roomInfo = document.getElementById('room-info');
         const startBtn = document.getElementById('start-btn');
-        const overlayTitle = document.getElementById('overlay-title');
-        const overlayDesc = document.getElementById('overlay-desc');
+        const menuOptions = document.getElementById('menu-options');
 
-        startBtn.addEventListener('click', () => {
+        document.getElementById('solo-btn').addEventListener('click', () => {
+            isOnline = false;
+            document.getElementById('mode-text').innerText = "SOLO";
+            startGame();
+        });
+
+        document.getElementById('host-btn').addEventListener('click', () => {
+            const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+            initPeer("FPS-" + roomCode);
+
+            isOnline = true;
+            document.getElementById('mode-text').innerText = "ONLINE";
+            menuOptions.style.display = 'none';
+            roomInfo.style.display = 'block';
+            roomInfo.innerText = "CÓDIGO DA SALA: " + roomCode;
+            startBtn.style.display = 'block';
+        });
+
+        document.getElementById('join-btn').addEventListener('click', () => {
+            const code = document.getElementById('join-code-input').value.trim().toUpperCase();
+            if (code.length !== 4) return alert("Digite um código de 4 dígitos válido!");
+
+            initPeer();
+            peer.on('open', () => {
+                const conn = peer.connect("FPS-" + code);
+                setupConnection(conn);
+                conn.on('open', () => {
+                    isOnline = true;
+                    document.getElementById('mode-text').innerText = "ONLINE";
+                    startGame();
+                });
+            });
+        });
+
+        startBtn.addEventListener('click', startGame);
+
+        function startGame() {
             initAudio();
             document.body.requestPointerLock();
-        });
+        }
 
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement === document.body) {
                 overlay.style.display = 'none';
-                if (gameState !== 'PLAYING') {
-                    if (gameState === 'GAMEOVER' || gameState === 'VICTORY') resetGame();
-                    gameState = 'PLAYING';
-                }
+                gameState = 'PLAYING';
             } else {
                 if (gameState === 'PLAYING') {
                     overlay.style.display = 'flex';
-                    overlayTitle.innerText = "PAUSADO";
-                    overlayDesc.innerText = "Clique abaixo para continuar a batalha.";
-                    startBtn.innerText = "CONTINUAR";
+                    gameState = 'PAUSED';
                 }
             }
         });
 
-        function endGame(isVictory) {
-            gameState = isVictory ? 'VICTORY' : 'GAMEOVER';
-            document.exitPointerLock();
-            overlay.style.display = 'flex';
-
-            if (isVictory) {
-                overlayTitle.innerText = "VITÓRIA!";
-                overlayTitle.style.color = "#33ff33";
-                overlayTitle.style.textShadow = "4px 4px #005500";
-                overlayDesc.innerText = "Você exterminou todas as ameaças do labirinto!";
-            } else {
-                overlayTitle.innerText = "VOCÊ MORREU";
-                overlayTitle.style.color = "#ff2222";
-                overlayTitle.style.textShadow = "4px 4px #550000";
-                overlayDesc.innerText = "Os demônios consumiram sua alma...";
-            }
-            startBtn.innerText = "JOGAR NOVAMENTE";
-        }
-
-        function resetGame() {
-            playerHP = 100;
-            ammoCount = 30;
-            killedEnemies = 0;
-            camera.position.set(-halfW + UNIT * 1.5, 1.2, -halfH + UNIT * 1.5);
-            yaw = 0; pitch = 0;
-            camera.rotation.set(0, 0, 0);
-
-            enemies.forEach(e => scene.remove(e.sprite));
-            enemies.length = 0;
-            totalEnemies = 0;
-
-            for (let z = 0; z < mapHeight; z++) {
-                for (let x = 0; x < mapWidth; x++) {
-                    if (MAP[z][x] === 2) {
-                        const posX = x * UNIT - halfW + UNIT/2;
-                        const posZ = z * UNIT - halfH + UNIT/2;
-                        enemies.push(new Enemy(posX, posZ));
-                        totalEnemies++;
-                    }
-                }
-            }
-            updateHUD();
-        }
-
+        /* =========================================================================
+           8. LOOP PRINCIPAL
+           ========================================================================= */
         let lastTime = performance.now();
         function animate(now) {
             requestAnimationFrame(animate);
-
             const dt = Math.min((now - lastTime) / 1000, 0.1);
             lastTime = now;
 
             if (gameState === 'PLAYING') {
                 updatePlayer(dt);
-                enemies.forEach(e => e.update(dt));
-                updateParticles(dt);
             }
-
             renderer.render(scene, camera);
         }
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth * renderScale, window.innerHeight * renderScale, false);
+            renderer.setSize(window.innerWidth * 0.4, window.innerHeight * 0.4, false);
         });
 
         animate(performance.now());
