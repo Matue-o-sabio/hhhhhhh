@@ -182,14 +182,14 @@
             text-transform: uppercase;
         }
 
-        #room-info {
+        #net-status {
             margin-top: 15px;
-            font-size: 18px;
-            color: #00ff00;
+            font-size: 16px;
+            color: #ffff00;
             font-weight: bold;
+            max-width: 400px;
         }
     </style>
-    <!-- Three.js & PeerJS (WebRTC P2P) via CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
@@ -221,11 +221,11 @@
         <div class="menu-box" id="menu-options">
             <button id="solo-btn" class="btn">MODO SOLO</button>
             <button id="host-btn" class="btn btn-blue">CRIAR SALA ONLINE</button>
-            <input type="text" id="join-code-input" placeholder="CÓDIGO DA SALA" maxlength="4">
+            <input type="text" id="join-code-input" placeholder="CÓDIGO DA SALA (4 DÍGITOS)" maxlength="4">
             <button id="join-btn" class="btn btn-blue">ENTRAR NA SALA</button>
         </div>
 
-        <div id="room-info" style="display: none;"></div>
+        <div id="net-status" style="display: none;"></div>
         <button id="start-btn" class="btn" style="display: none; margin-top: 15px;">INICIAR JOGO</button>
     </div>
 
@@ -252,7 +252,6 @@
 
                 const noise = audioCtx.createBufferSource();
                 noise.buffer = buffer;
-
                 const filter = audioCtx.createBiquadFilter();
                 filter.type = 'lowpass';
                 filter.frequency.setValueAtTime(1200, now);
@@ -262,9 +261,7 @@
                 gain.gain.setValueAtTime(0.6, now);
                 gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
 
-                noise.connect(filter);
-                filter.connect(gain);
-                gain.connect(audioCtx.destination);
+                noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
                 noise.start(now);
             } else if (type === 'hit' || type === 'hurt') {
                 const osc = audioCtx.createOscillator();
@@ -274,10 +271,8 @@
                 osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
                 gain.gain.setValueAtTime(0.4, now);
                 gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.start(now);
-                osc.stop(now + 0.15);
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(now); osc.stop(now + 0.15);
             }
         }
 
@@ -312,7 +307,6 @@
             ctx.strokeRect(2, 2, s - 4, s - 4);
         });
 
-        // Sprite do Jogador Adversário (Cor Azul)
         const remotePlayerTexture = createTexture((ctx, s) => {
             ctx.clearRect(0, 0, s, s);
             ctx.fillStyle = '#0088ff'; ctx.beginPath(); ctx.arc(s/2, s/2 + 4, 22, 0, Math.PI * 2); ctx.fill();
@@ -405,7 +399,7 @@
         camera.add(gunGroup);
 
         /* =========================================================================
-           5. REDE MULTIPLAYER P2P (PEERJS)
+           5. REDE MULTIPLAYER P2P COM SERVIDORES STUN GOOGLE
            ========================================================================= */
         let peer = null;
         let connections = [];
@@ -413,23 +407,54 @@
         let isOnline = false;
         let myPeerId = null;
 
-        function initPeer(customId = null) {
-            peer = customId ? new Peer(customId) : new Peer();
+        function updateStatus(msg, color = "#ffff00") {
+            const statusEl = document.getElementById('net-status');
+            statusEl.style.display = 'block';
+            statusEl.style.color = color;
+            statusEl.innerText = msg;
+        }
+
+        function initPeer(customId = null, callback) {
+            // Configura servidores STUN do Google para atravessar Roteadores/Firewalls
+            const peerOptions = {
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
+            };
+
+            peer = customId ? new Peer(customId, peerOptions) : new Peer(peerOptions);
 
             peer.on('open', (id) => {
                 myPeerId = id;
-                console.log("Peer Conectado ID:", id);
+                if (callback) callback(id);
             });
 
             peer.on('connection', (conn) => {
                 setupConnection(conn);
+                updateStatus("JOGADOR CONECTADO!", "#00ff00");
+                document.getElementById('start-btn').style.display = 'block';
+            });
+
+            peer.on('error', (err) => {
+                console.error("PeerJS Error:", err);
+                if (err.type === 'unavailable-id') {
+                    updateStatus("CÓDIGO INDISPONÍVEL. TENTE NOVAMENTE.", "#ff2222");
+                } else {
+                    updateStatus("ERRO DE CONEXÃO: " + err.type, "#ff2222");
+                }
             });
         }
 
         function setupConnection(conn) {
             connections.push(conn);
             conn.on('data', (data) => handleNetworkData(data, conn.peer));
-            conn.on('close', () => removeRemotePlayer(conn.peer));
+            conn.on('close', () => {
+                removeRemotePlayer(conn.peer);
+                updateStatus("O OUTRO JOGADOR DESCONECTOU.", "#ff2222");
+            });
         }
 
         function broadcast(data) {
@@ -526,7 +551,6 @@
                 if (!checkWallCollision(camera.position.x, nextZ, 0.5)) camera.position.z = nextZ;
             }
 
-            // Envia posição via rede a 20Hz
             if (isOnline) {
                 networkTimer += dt;
                 if (networkTimer > 0.05) {
@@ -558,7 +582,6 @@
             recoilTimer = 0.15;
             setTimeout(() => { muzzleSprite.visible = false; }, 50);
 
-            // Raycast para atingir jogadores remotos
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
 
@@ -585,10 +608,9 @@
         }
 
         /* =========================================================================
-           7. INTERFACE E EVENTOS DOS MENUS ONLINE
+           7. INTERFACE E LÓGICA DAS SALAS ONLINE
            ========================================================================= */
         const overlay = document.getElementById('screen-overlay');
-        const roomInfo = document.getElementById('room-info');
         const startBtn = document.getElementById('start-btn');
         const menuOptions = document.getElementById('menu-options');
 
@@ -599,30 +621,47 @@
         });
 
         document.getElementById('host-btn').addEventListener('click', () => {
-            const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-            initPeer("FPS-" + roomCode);
-
-            isOnline = true;
-            document.getElementById('mode-text').innerText = "ONLINE";
+            updateStatus("CONECTANDO AO SERVIDOR DE REDE...");
             menuOptions.style.display = 'none';
-            roomInfo.style.display = 'block';
-            roomInfo.innerText = "CÓDIGO DA SALA: " + roomCode;
-            startBtn.style.display = 'block';
+
+            // Gera código numérico de 4 dígitos
+            const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+            
+            initPeer("BOOMER-FPS-" + roomCode, (id) => {
+                isOnline = true;
+                document.getElementById('mode-text').innerText = "ONLINE";
+                updateStatus("SALA CRIADA! CÓDIGO: " + roomCode + "\nAGUARDANDO SEGUNDO JOGADOR...", "#00ff00");
+            });
         });
 
         document.getElementById('join-btn').addEventListener('click', () => {
-            const code = document.getElementById('join-code-input').value.trim().toUpperCase();
-            if (code.length !== 4) return alert("Digite um código de 4 dígitos válido!");
+            const code = document.getElementById('join-code-input').value.trim();
+            if (code.length !== 4 || isNaN(code)) {
+                return updateStatus("DIGITE UM CÓDIGO VÁLIDO DE 4 DÍGITOS!", "#ff2222");
+            }
 
-            initPeer();
-            peer.on('open', () => {
-                const conn = peer.connect("FPS-" + code);
+            updateStatus("CONECTANDO À SALA " + code + "...");
+            menuOptions.style.display = 'none';
+
+            initPeer(null, () => {
+                const targetHostId = "BOOMER-FPS-" + code;
+                const conn = peer.connect(targetHostId, { reliable: true });
+
                 setupConnection(conn);
+
                 conn.on('open', () => {
                     isOnline = true;
                     document.getElementById('mode-text').innerText = "ONLINE";
-                    startGame();
+                    updateStatus("CONECTADO À SALA COM SUCESSO!", "#00ff00");
+                    document.getElementById('start-btn').style.display = 'block';
                 });
+
+                setTimeout(() => {
+                    if (!conn.open) {
+                        updateStatus("FALHA AO ENCONTRAR A SALA " + code + ". VERIFIQUE O CÓDIGO E SE O HOST ESTÁ ESPERANDO.", "#ff2222");
+                        menuOptions.style.display = 'flex';
+                    }
+                }, 7000);
             });
         });
 
